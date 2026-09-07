@@ -12,6 +12,7 @@
 #   ./run_multirun_a100.sh --backbone chexnet,vgg19
 #   ./run_multirun_a100.sh --keep
 #   ./run_multirun_a100.sh --session tesis-multirun-2
+#   ./run_multirun_a100.sh --output multirun_output_chexnet.ipynb
 #   ./run_multirun_a100.sh --timeout 172800
 set -euo pipefail
 
@@ -23,6 +24,8 @@ AUTH="${COLAB_AUTH:-}"
 # colab exec default es 30s por celda; la descarga del tar y el training
 # necesitan horas. 24h alinea con el cap de keep-alive de Colab.
 TIMEOUT="${COLAB_TIMEOUT:-86400}"
+# Vacio: se arma un nombre unico por corrida (sesion + backbones + timestamp + pid).
+OUTPUT="${COLAB_OUTPUT:-}"
 KEEP=0
 BACKBONES=()
 KNOWN_BACKBONES=(
@@ -45,13 +48,19 @@ Uso: $(basename "$0") [opciones]
   --timeout SEC      Timeout por celda de colab exec (default: ${TIMEOUT})
   --backbone NAME    Solo este backbone (repetible o separado por comas).
                      Default: el MODELS del notebook
+  --output PATH      Notebook de salida. Default: un archivo unico
+                     multirun_output_<sesion>[_backbones]_<fecha>_<pid>.ipynb
+                     Si PATH es un directorio, el archivo unico va ahi.
+                     Override: COLAB_OUTPUT=...
   --keep             No apaga la VM al terminar (sigue consumiendo compute)
   -h, --help         Esta ayuda
 
 Backbones: ${KNOWN_BACKBONES[*]}
 
-Ejecuta ${NOTEBOOK} celda por celda. El output queda en
-multirun_output.ipynb junto al notebook.
+Ejecuta ${NOTEBOOK} celda por celda. colab exec siempre escribe
+<notebook>_output.ipynb al lado del ipynb que corre; este script copia
+a un temp y mueve el resultado a --output para que dos corridas no
+se pisen el mismo archivo.
 EOF
 }
 
@@ -79,6 +88,33 @@ is_known_backbone() {
     fi
   done
   return 1
+}
+
+# Nombre de archivo unico: no choca si se lanza el script dos veces.
+default_output_basename() {
+  local stamp parts
+  stamp="$(date +%Y%m%d_%H%M%S)"
+  parts="${SESSION}"
+  if [[ ${#BACKBONES[@]} -gt 0 ]]; then
+    parts="${parts}_$(IFS=-; echo "${BACKBONES[*]}")"
+  fi
+  printf 'multirun_output_%s_%s_%s.ipynb' "${parts}" "${stamp}" "$$"
+}
+
+resolve_output_path() {
+  local path="$1"
+  if [[ -z "${path}" ]]; then
+    printf '%s/%s' "${ROOT}" "$(default_output_basename)"
+    return
+  fi
+  if [[ "${path}" != /* ]]; then
+    path="${ROOT}/${path}"
+  fi
+  if [[ -d "${path}" ]]; then
+    printf '%s/%s' "${path%/}" "$(default_output_basename)"
+    return
+  fi
+  printf '%s' "${path}"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -109,6 +145,14 @@ while [[ $# -gt 0 ]]; do
         exit 1
       fi
       add_backbones "$2"
+      shift 2
+      ;;
+    --output)
+      if [[ $# -lt 2 || "$2" == -* ]]; then
+        echo "--output necesita un path (archivo o directorio)" >&2
+        exit 1
+      fi
+      OUTPUT="$2"
       shift 2
       ;;
     --keep)
@@ -187,12 +231,18 @@ open(dst, "w", encoding="utf-8").write(json.dumps(nb, indent=1, ensure_ascii=Fal
 PY
 }
 
+# Siempre copiar a temp: colab exec escribe <stem>_output.ipynb al lado del
+# notebook que ejecuta. Sin temp, dos corridas pisarian el mismo archivo.
+TMP_NB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/multirun.XXXXXX")"
 if [[ ${#BACKBONES[@]} -gt 0 ]]; then
-  TMP_NB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/multirun.XXXXXX")"
   models_csv="$(IFS=','; echo "${BACKBONES[*]}")"
   patch_notebook_backbones "${NOTEBOOK}" "${TMP_NB_DIR}/multirun.ipynb" "${models_csv}"
-  NOTEBOOK="${TMP_NB_DIR}/multirun.ipynb"
+else
+  cp -f "${NOTEBOOK}" "${TMP_NB_DIR}/multirun.ipynb"
 fi
+NOTEBOOK="${TMP_NB_DIR}/multirun.ipynb"
+OUTPUT="$(resolve_output_path "${OUTPUT}")"
+mkdir -p "$(dirname "${OUTPUT}")"
 
 colab_cmd() {
   if [[ -n "${AUTH}" ]]; then
@@ -201,13 +251,6 @@ colab_cmd() {
     colab "$@"
   fi
 }
-
-if [[ ${#BACKBONES[@]} -gt 0 ]]; then
-  echo "[colab] sesion=${SESSION} gpu=${GPU} timeout=${TIMEOUT}s notebook=${NOTEBOOK} backbones=${BACKBONES[*]}"
-else
-  echo "[colab] sesion=${SESSION} gpu=${GPU} timeout=${TIMEOUT}s notebook=${NOTEBOOK}"
-fi
-colab_cmd new -s "${SESSION}" --gpu "${GPU}"
 
 stop_session() {
   if [[ "${KEEP}" -eq 0 ]]; then
@@ -219,17 +262,23 @@ stop_session() {
 }
 
 cleanup() {
-  local patched_output=""
+  local exec_output="${TMP_NB_DIR}/multirun_output.ipynb"
+  if [[ -n "${TMP_NB_DIR}" && -f "${exec_output}" ]]; then
+    mv -f "${exec_output}" "${OUTPUT}"
+    echo "[colab] output -> ${OUTPUT}"
+  fi
   if [[ -n "${TMP_NB_DIR}" ]]; then
-    patched_output="${TMP_NB_DIR}/multirun_output.ipynb"
-    if [[ -f "${patched_output}" ]]; then
-      mv -f "${patched_output}" "${ROOT}/multirun_output.ipynb"
-      echo "[colab] output -> ${ROOT}/multirun_output.ipynb"
-    fi
     rm -rf "${TMP_NB_DIR}"
   fi
   stop_session
 }
 trap cleanup EXIT
+
+log_bits="sesion=${SESSION} gpu=${GPU} timeout=${TIMEOUT}s notebook=${NOTEBOOK} output=${OUTPUT}"
+if [[ ${#BACKBONES[@]} -gt 0 ]]; then
+  log_bits+=" backbones=${BACKBONES[*]}"
+fi
+echo "[colab] ${log_bits}"
+colab_cmd new -s "${SESSION}" --gpu "${GPU}"
 
 colab_cmd exec -s "${SESSION}" -f "${NOTEBOOK}" --timeout "${TIMEOUT}"

@@ -1,0 +1,7 @@
+3. CLAHE después del resize (todos los modos)
+Hoy se reescala a 224 (simple/patch) o 672 (full/ABMIL) y después se aplica CLAHE (tile_grid=8). Sobre 224 eso son teselas de ~28 px: el contraste local de la mamografía original se pierde.
+Arreglo: CLAHE sobre la imagen decodificada (y ya lateralizada) antes de resize/canvas en _make_process_fn / _bag_canvas. Misma clip_limit/tile_grid; solo cambia el orden. Afecta a todos los modos; hay que reentrenar para comparar.
+
+4. Checkpoint: METRIC_TO_MAXIMIZE: "auc"
+En multirun.ipynb se elige el mejor val_auc (ROC). Val/test no están undersampleados, así que el desbalance natural queda. ROC-AUC puede preferir un modelo más “holgado” en la clase mayoritaria; pr_auc alinea mejor el checkpoint con detección de BI-RADS 3–5.
+Cambio chico: "METRIC_TO_MAXIMIZE": "pr_auc" (Keras ya loguea esa métrica). No es un bug de código; sí cambia qué pesos se guardan y se transfieren.
