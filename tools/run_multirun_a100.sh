@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Corre multirun.ipynb en una sesion Colab con GPU A100.
+# Corre multirun.ipynb en una sesion Colab con GPU A100 high-RAM.
 # El CONFIG y los modos viven en el notebook; --backbone pisa MODELS
 # en una copia temporal (el ipynb original no se toca).
+#
+# Siempre pide machine shape high-RAM (colab new --high-mem, o shape=hm
+# si el CLI instalado todavia no tiene el flag). Requiere Colab Pro/Pro+.
 #
 # Usa la misma autenticacion que `colab` (oauth2 por default en esta version).
 # Override: COLAB_AUTH=adc ./run_multirun_a100.sh
@@ -44,6 +47,7 @@ Uso: $(basename "$0") [opciones]
 
   --session NAME     Nombre de la sesion Colab (default: ${SESSION})
   --gpu TYPE         GPU Colab (default: ${GPU})
+                     Siempre high-RAM (A100 ~80 GB; Pro/Pro+)
   --auth MODE        oauth2 o adc. Default: el del CLI (oauth2)
   --timeout SEC      Timeout por celda de colab exec (default: ${TIMEOUT})
   --backbone NAME    Solo este backbone (repetible o separado por comas).
@@ -252,6 +256,35 @@ colab_cmd() {
   fi
 }
 
+# google-colab-cli 0.6 no expone --high-mem; el backend acepta shape=hm
+# (igual que la UI). CLI nuevos ya mandan eso con --high-mem.
+enable_high_ram_assign() {
+  local dir="$1"
+  cat >"${dir}/sitecustomize.py" <<'PY'
+"""Fuerza high-RAM en /tun/m/assign si el CLI no mando shape=hm."""
+try:
+    from colab_cli.client import Client
+except Exception:
+    pass
+else:
+    _orig = Client._build_assign_url
+
+    def _build_assign_url(self, *args, **kwargs):
+        url = _orig(self, *args, **kwargs)
+        if url and "shape=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}shape=hm"
+        return url
+
+    Client._build_assign_url = _build_assign_url
+PY
+  export PYTHONPATH="${dir}${PYTHONPATH:+:${PYTHONPATH}}"
+}
+
+colab_new_supports_high_mem() {
+  colab_cmd new --help 2>&1 | grep -Fq -- "--high-mem"
+}
+
 stop_session() {
   if [[ "${KEEP}" -eq 0 ]]; then
     echo "[colab] apagando sesion ${SESSION}"
@@ -274,11 +307,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-log_bits="sesion=${SESSION} gpu=${GPU} timeout=${TIMEOUT}s notebook=${NOTEBOOK} output=${OUTPUT}"
+enable_high_ram_assign "${TMP_NB_DIR}"
+
+new_args=(-s "${SESSION}" --gpu "${GPU}")
+if colab_new_supports_high_mem; then
+  new_args+=(--high-mem)
+  high_mem_how="--high-mem"
+else
+  high_mem_how="shape=hm (CLI sin --high-mem)"
+fi
+
+log_bits="sesion=${SESSION} gpu=${GPU} high-ram=${high_mem_how} timeout=${TIMEOUT}s notebook=${NOTEBOOK} output=${OUTPUT}"
 if [[ ${#BACKBONES[@]} -gt 0 ]]; then
   log_bits+=" backbones=${BACKBONES[*]}"
 fi
 echo "[colab] ${log_bits}"
-colab_cmd new -s "${SESSION}" --gpu "${GPU}"
+colab_cmd new "${new_args[@]}"
 
 colab_cmd exec -s "${SESSION}" -f "${NOTEBOOK}" --timeout "${TIMEOUT}"
