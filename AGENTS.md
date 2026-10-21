@@ -24,11 +24,13 @@ change how to edit or run the code:
  `MODELS` holds one representative per family (`swint`, `vits16`, `efficientnetb0`,
  `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`); architectures are
  `standard`, `resized` 448–1536, `abmil`, `abmil_patch_hardneg` (encoder
- `patch_hardneg_{backbone}`), minus `EXCLUIR` (`vits16` at 1152/1536). Runs go cheapest
- first (`plan.by_cost`) with `continue_on_error=True`; failures are listed, retried on the
- next run. Plus inference-only label A/B/C on `resized_448_swint` (`wip_*` via
- `PLAN.ALIASES`). Results are reported raw (`plan.matrix`, `plan.evaluate`, `plan.pairwise`
- within each column and row, `plan.seed_summary`) on val and test: no automatic winners,
+ `patch_hardneg_{backbone}`), minus `EXCLUIR` (`vits16` at 1152/1536). Training labels B and
+ C are crossed only on the cheap columns `ARQ_ETIQUETA` = {`standard`, `resized_448`} for all
+ backbones (`resized_448_swint` B/C are the `wip_*` runs via `PLAN.ALIASES`). Runs go
+ cheapest first (`plan.by_cost`) with `continue_on_error=True`; failures are listed, retried
+ on the next run. Results are reported raw (`plan.matrix`, `plan.evaluate`, `plan.pairwise`)
+ on val and test: labels within each backbone×arch, and backbones/architectures within
+ label A (`MATRIZ_A`) by column and row, plus `plan.seed_summary`. No automatic winners,
  finalists or propagated decisions — the user asked for raw comparisons. Every
  comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
  predictions cached as Comet assets `predictions_{split}.csv` (logged by

@@ -100,10 +100,15 @@ porque su atención global no entra en una A100. Estado al 2026-10-21:
 | `chexnet` | hecha | falta | falta | falta | falta | falta | falta | falta |
 | `customcnn` | hecha | hecha | hecha | hecha | falta | falta | falta | falta |
 
-Son 45 corridas pendientes de 62, unas 86 h de A100 (más ~2.5 h de encoders),
-estimadas con los tiempos de Swin. Se corre lo más barato primero. Aparte, la
-etiqueta A/B/C se compara sobre `resized_448_swint` con las corridas `wip_*`
-(solo inferencia).
+La etiqueta de entrenamiento también es parte de la matriz, pero solo en las
+columnas baratas: B (sin BI-RADS 3) y C (BI-RADS 3 como negativo) se entrenan
+en `standard` y `resized_448` para los 8 backbones, así su efecto se mide en
+todas las familias sin triplicar el costo. `resized_448_swint` con B y C ya
+existe (corridas `wip_*`, vía `PLAN.ALIASES`).
+
+En total son 94 corridas: 19 hechas y 75 pendientes, unas 94 h de A100 (más
+~2.5 h de encoders), estimadas con los tiempos de Swin. Se corre lo más barato
+primero.
 
 `multirun_wip.ipynb` queda como registro de cómo se entrenaron las corridas
 `wip_*`; el plan ya cubre etiquetas, predicciones exportadas, métricas
@@ -157,7 +162,7 @@ checkpoint; test es la prevalencia del 6.4 % (246/3862):
 
 ### Qué queda por correr
 
-- Las 45 corridas pendientes de la matriz (~86 h de A100, varias sesiones de Colab con resume).
+- Las 75 corridas pendientes de la matriz (~94 h de A100, varias sesiones de Colab con resume).
 - El canvas 2048, 1536 completo, ViT en canvases grandes y los backbones pesados (`chexnet`, `vgg19`) quedan fuera del plan.
 
 ## Layout
