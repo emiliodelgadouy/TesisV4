@@ -20,14 +20,14 @@ driver is `multirun.ipynb`; its Colab setup recreates `./src` from that remote, 
 The human-facing snapshot lives in the workspace `README.md` and `src/README.md`. Facts that
 change how to edit or run the code:
 
-- `multirun.ipynb` runs a phased plan (`ExperimentPlan` / `RunSpec`), not a full sweep:
- phase 1 training label A/B/C on `resized_448_swint` (no training; `wip_*` runs via
- `PLAN.ALIASES`) → phase 2 EfficientNet B1/B3 vs `resized_672_swint` with the winning label
- → phase 3 `patch_hardneg` → `abmil_patch_hardneg` with the phase-2 backbone → phase 4
- top-2 × seeds `None/43/44`. Every comparison uses the same canonical images and the fixed
- task `PLAN.TASK` ("A"): predictions from final weights, cached as Comet assets
- `predictions_{split}.csv`. A candidate wins if Δ PR-AUC > `PLAN.MARGIN` (0.02) and the
- paired, patient-grouped bootstrap CI is above 0. Test is shown only in phase 4. The
+- `multirun.ipynb` trains an explicit matrix (`CONFIGS` × `SEMILLAS`, label A):
+ `resized_672_swint` (exists), `resized_672_efficientnetb1`, `resized_672_efficientnetb3`,
+ `abmil_patch_hardneg_swint` (encoder `patch_hardneg_swint`); plus inference-only label
+ A/B/C on `resized_448_swint` (`wip_*` runs via `PLAN.ALIASES`). Results are reported raw
+ (`plan.evaluate`, `plan.pairwise`, `plan.seed_summary`) on val and test: no automatic
+ winners, finalists or propagated decisions — the user asked for raw comparisons. Every
+ comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
+ predictions from final weights cached as Comet assets `predictions_{split}.csv`. The
  per-mode full-sweep loops are commented and also go through `plan.run`.
 - Runs log `LABEL*`, `EVAL_TASK` and `PROVENANCE_*` (src commit, split hash, config hash).
  `multirun_wip.ipynb` is kept as the record of how the `wip_*` runs were trained.

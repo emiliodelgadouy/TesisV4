@@ -63,31 +63,33 @@ Los nombres de experimento RESIZED llevan el canvas (`resized_672_swint`).
 
 ### Código y notebook
 
-`multirun.ipynb` corre un plan por fases en vez del barrido completo. Se fija
-una referencia y se mueve un factor por vez. Para que los experimentos sean
-contrastables:
+`multirun.ipynb` entrena una matriz explícita de configuraciones y las reporta
+todas contra todas, sin elegir ganadores ni propagar decisiones. Para que los
+experimentos sean contrastables:
 
 - Todas las corridas se evalúan sobre las mismas imágenes (val y test
   canónicos completos) y la misma tarea (`PLAN.TASK`, 1–2 vs 3–5). La etiqueta
   de entrenamiento (A, B o C, ver `src/dataset/target.py`) es un factor más.
 - Las predicciones de cada corrida quedan como asset `predictions_{split}.csv`
   en su experimento de Comet, así cualquier par se compara sin reentrenar.
-- Un candidato gana si mejora la PR-AUC de validación por más de
-  `PLAN.MARGIN` (0.02, ruido entre semillas) y el IC 95 % pareado de la
-  diferencia, con bootstrap agrupado por paciente, queda por encima de 0.
-- Test se mira recién en la fase 4, como media ± desvío entre semillas.
+- Para cada par de corridas se reporta la diferencia de PR-AUC y ROC-AUC con
+  IC 95 % por bootstrap pareado agrupado por paciente, en validación y en test.
+  Como referencia de ruido, la misma configuración varió ~0.02 de PR-AUC entre
+  repeticiones.
 
 Para que sean repetibles, cada corrida fija sus semillas y loguea en Comet la
 etiqueta, la tarea, el commit de `src`, el hash de los splits y el hash del
 config. Al crear el plan se verifica que ningún paciente caiga en dos splits.
 
-| Fase | Pregunta | Corridas |
-| --- | --- | --- |
-| Ref. | Ya en Comet | `resized_672_swint` |
-| 1 | ¿Otra etiqueta de BI-RADS 3 mejora la tarea clínica? | Ninguna: usa los pesos `wip_*` (`PLAN.ALIASES`) |
-| 2 | ¿Algún EfficientNet le gana a Swin? | EfficientNet B1 y B3 en 672, con la etiqueta ganadora |
-| 3 | ¿ABMIL le gana a la imagen entera? | `patch_hardneg` → `abmil_patch_hardneg` con el backbone ganador |
-| 4 | Confirmar | Los 2 mejores × 3 semillas, con test |
+Matriz actual (etiqueta A, una semilla; `SEMILLAS` en el notebook agrega más):
+
+| Configuración | Estado |
+| --- | --- |
+| `resized_672_swint` | ya en Comet |
+| `resized_672_efficientnetb1` | nueva |
+| `resized_672_efficientnetb3` | nueva |
+| `abmil_patch_hardneg_swint` (encoder `patch_hardneg_swint`) | nueva (2 corridas) |
+| `resized_448_swint` con etiqueta A, B y C | ya en Comet (`wip_*`, vía `PLAN.ALIASES`); solo inferencia |
 
 `multirun_wip.ipynb` queda como registro de cómo se entrenaron las corridas
 `wip_*`; el plan ya cubre etiquetas, predicciones exportadas, métricas
@@ -134,20 +136,20 @@ checkpoint; test es la prevalencia del 6.4 % (246/3862):
 
 - Swin mejora con el canvas hasta 672–896 y después cae. `resized_1536_swint` quedó cortada en la etapa 2 (val 0.31).
 - ViT empeora con canvases grandes (448: 0.742 test ROC; 896: 0.635).
-- No hay `resized_*_efficientnet` con el código actual; es la fase 1.
+- No hay `resized_*_efficientnet` con el código actual; B1 y B3 en 672 están en la matriz.
 - `customcnn` y `chexnet` quedan cerca del azar (test ROC 0.54–0.60).
-- La ablación de BI-RADS 3 (`wip_a/b/c`) evaluó cada variante contra un test distinto, así que sus AUC no se comparan entre sí; la fase 1 las reevalúa sobre las mismas imágenes.
+- La ablación de BI-RADS 3 (`wip_a/b/c`) evaluó cada variante contra un test distinto, así que sus AUC no se comparan entre sí; el notebook las reevalúa sobre las mismas imágenes.
 - En el barrido archivado, ABMIL queda por debajo de Swin resized (`abmil_patch_hardneg_swint`: 0.767 / 0.358 de test).
 
 ### Qué queda por correr
 
-- Fases 1–4 del plan (~12–15 h de A100).
+- La matriz con una semilla (~3–4 h de A100). Repetirla con las semillas 43 y 44 suma ~7–8 h.
 - El canvas 2048, 1536 completo, ViT en canvases grandes y los backbones pesados (`chexnet`, `vgg19`) quedan fuera del plan.
 
 ## Layout
 
 ```
-multirun.ipynb          driver: plan por fases con resume
+multirun.ipynb          driver: matriz de experimentos con resume y comparación cruda
 multirun_wip.ipynb      ablación de etiquetas BI-RADS
 src/                    paquete de entrenamiento (repo aparte; ver src/README.md)
 papers/                 papers de referencia
