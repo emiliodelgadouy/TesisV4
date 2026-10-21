@@ -51,6 +51,12 @@ change how to edit or run the code:
  `tools/` are gitignored in the workspace repo. `tools/run_multirun_a100.sh` has `--drive`
  (mounts Drive via `colab drivemount`, interactive) and `--reuse` (restart kernel, no new VM).
 
+## Git
+
+Work on `main` in both repos (`TesisV4` and `src/` → `TesisV4_src`). Do not create feature
+branches; commit to `main` and push when the user asks. Colab clones `TesisV4_src` `main`, so
+`src/` changes must be pushed there to take effect.
+
 ## Environment and validation
 
 - The Python environment is normally `.venv`. Train-time dependencies live in
