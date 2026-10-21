@@ -20,14 +20,20 @@ driver is `multirun.ipynb`; its Colab setup recreates `./src` from that remote, 
 The human-facing snapshot lives in the workspace `README.md` and `src/README.md`. Facts that
 change how to edit or run the code:
 
-- `multirun.ipynb` trains an explicit matrix (`CONFIGS` × `SEMILLAS`, label A):
- `resized_672_swint` (exists), `resized_672_efficientnetb1`, `resized_672_efficientnetb3`,
- `abmil_patch_hardneg_swint` (encoder `patch_hardneg_swint`); plus inference-only label
- A/B/C on `resized_448_swint` (`wip_*` runs via `PLAN.ALIASES`). Results are reported raw
- (`plan.evaluate`, `plan.pairwise`, `plan.seed_summary`) on val and test: no automatic
- winners, finalists or propagated decisions — the user asked for raw comparisons. Every
+- `multirun.ipynb` trains an explicit matrix `MODELS` × architectures × `SEMILLAS` (label A):
+ `MODELS` holds one representative per family (`swint`, `vits16`, `efficientnetb0`,
+ `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`); architectures are
+ `standard`, `resized` 448–1536, `abmil`, `abmil_patch_hardneg` (encoder
+ `patch_hardneg_{backbone}`), minus `EXCLUIR` (`vits16` at 1152/1536). Runs go cheapest
+ first (`plan.by_cost`) with `continue_on_error=True`; failures are listed, retried on the
+ next run. Plus inference-only label A/B/C on `resized_448_swint` (`wip_*` via
+ `PLAN.ALIASES`). Results are reported raw (`plan.matrix`, `plan.evaluate`, `plan.pairwise`
+ within each column and row, `plan.seed_summary`) on val and test: no automatic winners,
+ finalists or propagated decisions — the user asked for raw comparisons. Every
  comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
- predictions from final weights cached as Comet assets `predictions_{split}.csv`. The
+ predictions cached as Comet assets `predictions_{split}.csv` (logged by
+ `TrainingExperiment` at the end of each run; recomputed from final weights for older runs
+ or when the run's rows differ from the canonical split). The
  per-mode full-sweep loops are commented and also go through `plan.run`.
 - Runs log `LABEL*`, `EVAL_TASK` and `PROVENANCE_*` (src commit, split hash, config hash).
  `multirun_wip.ipynb` is kept as the record of how the `wip_*` runs were trained.

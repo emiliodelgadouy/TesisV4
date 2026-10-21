@@ -81,15 +81,29 @@ Para que sean repetibles, cada corrida fija sus semillas y loguea en Comet la
 etiqueta, la tarea, el commit de `src`, el hash de los splits y el hash del
 config. Al crear el plan se verifica que ningún paciente caiga en dos splits.
 
-Matriz actual (etiqueta A, una semilla; `SEMILLAS` en el notebook agrega más):
+Matriz actual: `MODELS` × arquitecturas, con etiqueta A y una semilla
+(`SEMILLAS` en el notebook agrega más). `MODELS` tiene un representante por
+familia: `swint`, `vits16`, `efficientnetb0`, `efficientnetb3`,
+`efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`. Las arquitecturas son
+`standard`, `resized` 448/672/896/1152/1536, `abmil` y `abmil_patch_hardneg`
+(con encoder `patch_hardneg_{backbone}`). `vits16` no corre en 1152/1536
+porque su atención global no entra en una A100. Estado al 2026-10-21:
 
-| Configuración | Estado |
-| --- | --- |
-| `resized_672_swint` | ya en Comet |
-| `resized_672_efficientnetb1` | nueva |
-| `resized_672_efficientnetb3` | nueva |
-| `abmil_patch_hardneg_swint` (encoder `patch_hardneg_swint`) | nueva (2 corridas) |
-| `resized_448_swint` con etiqueta A, B y C | ya en Comet (`wip_*`, vía `PLAN.ALIASES`); solo inferencia |
+| Backbone | standard | 448 | 672 | 896 | 1152 | 1536 | abmil | abmil_patch_hardneg |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `swint` | hecha | hecha | hecha | hecha | hecha | falta | falta | falta |
+| `vits16` | hecha | hecha | hecha | hecha | — | — | falta | falta |
+| `efficientnetb0` | hecha | falta | falta | falta | falta | falta | falta | falta |
+| `efficientnetb3` | hecha | falta | falta | falta | falta | falta | falta | falta |
+| `efficientnetv2b0` | falta | falta | falta | falta | falta | falta | falta | falta |
+| `vgg16` | hecha | falta | falta | falta | falta | falta | falta | falta |
+| `chexnet` | hecha | falta | falta | falta | falta | falta | falta | falta |
+| `customcnn` | hecha | hecha | hecha | hecha | falta | falta | falta | falta |
+
+Son 45 corridas pendientes de 62, unas 86 h de A100 (más ~2.5 h de encoders),
+estimadas con los tiempos de Swin. Se corre lo más barato primero. Aparte, la
+etiqueta A/B/C se compara sobre `resized_448_swint` con las corridas `wip_*`
+(solo inferencia).
 
 `multirun_wip.ipynb` queda como registro de cómo se entrenaron las corridas
 `wip_*`; el plan ya cubre etiquetas, predicciones exportadas, métricas
@@ -136,14 +150,14 @@ checkpoint; test es la prevalencia del 6.4 % (246/3862):
 
 - Swin mejora con el canvas hasta 672–896 y después cae. `resized_1536_swint` quedó cortada en la etapa 2 (val 0.31).
 - ViT empeora con canvases grandes (448: 0.742 test ROC; 896: 0.635).
-- No hay `resized_*_efficientnet` con el código actual; B1 y B3 en 672 están en la matriz.
+- No hay `resized_*_efficientnet` con el código actual; están en la matriz.
 - `customcnn` y `chexnet` quedan cerca del azar (test ROC 0.54–0.60).
 - La ablación de BI-RADS 3 (`wip_a/b/c`) evaluó cada variante contra un test distinto, así que sus AUC no se comparan entre sí; el notebook las reevalúa sobre las mismas imágenes.
 - En el barrido archivado, ABMIL queda por debajo de Swin resized (`abmil_patch_hardneg_swint`: 0.767 / 0.358 de test).
 
 ### Qué queda por correr
 
-- La matriz con una semilla (~3–4 h de A100). Repetirla con las semillas 43 y 44 suma ~7–8 h.
+- Las 45 corridas pendientes de la matriz (~86 h de A100, varias sesiones de Colab con resume).
 - El canvas 2048, 1536 completo, ViT en canvases grandes y los backbones pesados (`chexnet`, `vgg19`) quedan fuera del plan.
 
 ## Layout
