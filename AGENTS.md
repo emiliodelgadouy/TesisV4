@@ -11,41 +11,51 @@ that convention when editing source code.
 
 `src/` is a standalone Git repository consumed by the notebook as
 `emiliodelgadouy/TesisV4_src` (`https://github.com/emiliodelgadouy/TesisV4_src`). The Comet
-project name in the notebook is still `tesis_v3` (slug `tesis-v3`). The current workspace
+project in the notebook is `tesis_v4` (new, empty at the start of the anchored matrix; everything
+is retrained there). `tesis_v3` (slug `tesis-v3`) is historical. The current workspace
 driver is `multirun.ipynb`; its Colab setup recreates `./src` from that remote, so local
 `src/` edits are not visible there until they are committed and pushed.
 
-## Current status (2026-10-19)
+## Current status (2026-10-21)
 
 The human-facing snapshot lives in the workspace `README.md` and `src/README.md`. Facts that
 change how to edit or run the code:
 
-- `multirun.ipynb` trains an explicit matrix `MODELS` × architectures × `SEMILLAS` (label A):
- `MODELS` holds one representative per family (`swint`, `vits16`, `efficientnetb0`,
- `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`); architectures are
- `standard`, `resized` 448–1536, `abmil`, `abmil_patch_hardneg` (encoder
- `patch_hardneg_{backbone}`), minus `EXCLUIR` (`vits16` at 1152/1536). Training labels B and
- C are crossed only on the cheap columns `ARQ_ETIQUETA` = {`standard`, `resized_448`} for all
- backbones (`resized_448_swint` B/C are the `wip_*` runs via `PLAN.ALIASES`). Runs go
- cheapest first (`plan.by_cost`) with `continue_on_error=True`; failures are listed, retried
- on the next run. Results are reported raw (`plan.matrix`, `plan.evaluate`, `plan.pairwise`)
- on val and test: labels within each backbone×arch, and backbones/architectures within
- label A (`MATRIZ_A`) by column and row, plus `plan.seed_summary`. No automatic winners,
- finalists or propagated decisions — the user asked for raw comparisons. Every
+- `multirun.ipynb` trains an **anchored matrix**, not a full product. Anchor
+ `ANCLA = resized_672_swint` (label A, seed 42) and CNN anchor `ANCLA_CNN =
+ resized_672_efficientnetb0`. `PREGUNTAS` holds one slice per thesis question, each moving a
+ single factor: `familia` (`resized_672` × swint, vits16, efficientnetb0, efficientnetv2b0,
+ vgg16, chexnet, customcnn), `escala` (B0 vs B3 at 672), `resolucion` ({standard, 448, 672, 896,
+ 1152} × both anchors), `mil` (`abmil` vs `resized_672`), `patch_pretrain`
+ (`abmil_patch_hardneg` with encoder `patch_hardneg_{backbone}` vs `abmil`) and `etiqueta`
+ (`resized_672` × both anchors × labels A/B/C). `MATRIZ = plan.by_cost(plan.unique(...))` is
+ the deduplicated union plus the two encoders and the extra anchor seeds from `SEMILLAS`:
+ 26 runs, ~27 h nominal of A100 (~0.11 h per cost unit). Out on purpose: 1536, ViT at high
+ resolution, EfficientNet B1/B2/B4+, V2 S/M/L, VGG19.
+- Runs go cheapest first with `continue_on_error=True`; failures are listed and retried on the
+ next run. `plan.timing(MATRIZ)` shows real hours (`training_wall_seconds`) and re-estimates the
+ rest. The report is per question on val and test (`plan.evaluate` + `plan.pairwise`): all pairs
+ for `familia`/`escala`, pairs within each backbone for the other slices; `etiqueta` is also
+ evaluated on task B (1–2 vs 4–5) with the median probability per BI-RADS. No automatic
+ winners, finalists or propagated decisions — the user asked for raw comparisons. Every
  comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
  predictions cached as Comet assets `predictions_{split}.csv` (logged by
- `TrainingExperiment` at the end of each run; recomputed from final weights for older runs
- or when the run's rows differ from the canonical split). The
- per-mode full-sweep loops are commented and also go through `plan.run`.
-- Runs log `LABEL*`, `EVAL_TASK` and `PROVENANCE_*` (src commit, split hash, config hash).
- `multirun_wip.ipynb` is kept as the record of how the `wip_*` runs were trained.
+ `TrainingExperiment` at the end of each run; recomputed from final weights when missing or
+ when the run's rows differ from the canonical split). The per-mode full-sweep loops are
+ commented and also go through `plan.run`.
+- Runs log `LABEL*`, `EVAL_TASK` and `PROVENANCE_*` (src commit, split hash, config hash,
+ Python/TensorFlow/Keras/comet_ml versions and GPU; Colab skips requirements, so TF is
+ whatever Colab ships). `PLAN.ALIASES` and `RESUME.COMET_DONE_SINCE` are still supported by
+ `src/` but unused in the new project. `multirun_wip.ipynb` is kept as the record of the
+ `wip_*` runs in `tesis_v3`; the `etiqueta` slice replaces it.
 - Resume: `RESUME.BACKEND="comet"` stores each run's state and weights as `resume_*` assets of
  its own Comet experiment (`"dir"` uses a folder in `RESUME.DIR`). Re-running the notebook
  skips `done` runs, resumes a cut run from its last epoch, and keeps logging into the same
- Comet experiment. `SKIP_IF_IN_COMET` + `COMET_DONE_SINCE` (2026-09-09) also treat finished
- Comet runs as done.
-- `MODELS`: `vits16`, `swint`, `efficientnetb0`–`efficientnetb3` (used by the commented
- sweep loops and the launcher `--backbone`). RESIZED canvases in the notebook: 448, 672,
+ Comet experiment. `SKIP_IF_IN_COMET` also treats finished Comet runs with the same name as
+ done.
+- `MODELS`: the 8 slice backbones (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`,
+ `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`), also used by the commented sweep loops
+ and the launcher `--backbone`. RESIZED canvases in the notebook: 448, 672,
  896, 1152, 1536 (2048 is listed and commented), with `RESIZED.BATCH_SIZES` and
  `RESIZED.CACHE` (cache on for 448–896).
 - Checkpoint metric is `GENERAL.METRIC_TO_MAXIMIZE = "pr_auc"`. CLAHE already runs after
@@ -53,7 +63,7 @@ change how to edit or run the code:
   (`log_model`) and the global restore epoch is logged.
 - `multirun_wip.ipynb` is a side ablation of the BI-RADS 3 label on `resized_448_swint`. It
   must not modify `src/`. Experiments use a `wip_` name prefix.
-- The local `comet_metrics/` dump (2026-10-19, 66 runs including 28 archived) mixes the
+- The local `comet_metrics/` dump (2026-10-19, 66 `tesis-v3` runs including 28 archived) mixes the
  current names with the archived `simple` / `full` / `abmil*` sweep from 2026-09-07/08.
  Only non-archived runs from 2026-09-09 on match the current code. `comet_metrics/` and
  `tools/` are gitignored in the workspace repo. `tools/run_multirun_a100.sh` has `--drive`
@@ -262,9 +272,12 @@ Checkpoints are written under `checkpoints/`. Experiment runs pass a
 `multirun.ipynb` is the current experiment driver. Its flow is: clone/setup `src` from
 `TesisV4_src` -> `configure_notebook()` -> import `src.notebook_api` -> define config
 (including `RESUME` and `PLAN`) -> `prepare_resume()` -> download/prepare data ->
-phases through `ExperimentPlan`. Phase 1/3/4 specs depend on the previous phase's winner, so
-run the cells in order; re-running the whole notebook after a crash is the resume path. Keep
-the per-mode sweep loops commented unless the run is meant to include them.
+anchored matrix through `ExperimentPlan` (`PREGUNTAS` → `MATRIZ` → `plan.run_all` → report per
+question). No spec depends on another run's result, except that `abmil_patch_hardneg` needs its
+`patch_hardneg` encoder (trained first by `by_cost`, or on demand by `trained_builder`).
+Re-running the whole notebook after a crash is the resume path. To add a question, add a slice to
+`PREGUNTAS`; shared cells are deduplicated by name. Keep the per-mode sweep loops commented
+unless the run is meant to include them.
 `multirun_wip.ipynb` is the BI-RADS label ablation and does not change `src/`.
 
 Keep notebook configuration and source defaults synchronized when adding a mode or changing bag,
