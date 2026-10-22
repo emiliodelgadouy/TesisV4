@@ -76,10 +76,11 @@ preguntas (`plan.unique`).
 | `efficientnetb0` | sí | sí | sí | sí | sí | sí | sí | sí |
 | `vits16`, `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn` | sí | — | sí | — | — | sí | — | — |
 
-Son 38 corridas (con los 2 encoders `patch_hardneg`), unas 33 h de A100. Las
-preguntas (`PREGUNTAS`, con los pares dentro de cada grupo):
+Son 38 corridas (con los 2 encoders `patch_hardneg`), unas 34 h de A100. Las
+preguntas (`PREGUNTAS`; definen qué se entrena, la comparación se hace fuera
+del notebook):
 
-| Pregunta | Qué se compara |
+| Pregunta | Para qué corridas |
 | --- | --- |
 | `familia` | los 8 backbones, dentro de `standard`, `resized_672` y `abmil` |
 | `escala` | `efficientnetb0` vs `efficientnetb3`, en esas tres arquitecturas |
@@ -102,25 +103,26 @@ Para monitorear, cada corrida loguea en Comet `run_status`, `run_status_code`,
 como asset `estado_matriz.csv`, y las métricas `runs_done`, `runs_pending`,
 `runs_failed`, `hours_done` y `matrix_progress`.
 
-El reporte va por pregunta, en validación y en test, por imagen y por mama
-(máximo entre CC y MLO): discriminación (ROC-AUC, PR-AUC, PR-AUC/prevalencia,
-sensibilidad a especificidad 90/95 %, precisión a recall 80 %), métricas con el
-umbral de Youden de val (sensibilidad, especificidad, PPV, NPV, F1),
-calibración (Brier, ECE) y diferencias por pares con IC 95 % dentro de cada
-grupo, sin elegir ganadores. En test, cada corrida tiene además su IC 95 % por
-paciente. Las mismas métricas quedan en Comet por corrida (`test_*`,
-`test_breast_*`, curva `calibration_test`). Las diferencias se leen contra `semillas`, que mide cuánto varía una
-misma configuración solo por el azar del entrenamiento.
+El notebook solo reporta; no compara corridas. Nada se guarda en Colab: el
+reporte se sube como assets `reporte_val.csv`, `reporte_test.csv` y
+`semillas_test.csv` al experimento `estado_matriz` de Comet
+(`plan.publish_report`). Es una tabla por split con una fila por corrida y nivel
+(por imagen y por mama, máximo entre CC y MLO) y la columna `preguntas`:
+discriminación (ROC-AUC, PR-AUC, PR-AUC/prevalencia, sensibilidad a
+especificidad 90/95 %, precisión a recall 80 %), métricas con el umbral de
+Youden de val (sensibilidad, especificidad, PPV, NPV, F1) y calibración
+(Brier, ECE). En test, cada corrida tiene además su IC 95 % por paciente, y
+`semillas` se resume como media ± desvío. Las mismas métricas quedan en Comet
+por corrida (`test_*`, `test_breast_*`, curva `calibration_test`).
 
-Para que los experimentos sean contrastables:
+Para que los experimentos se puedan contrastar en otro lugar:
 
 - Todas las corridas se evalúan sobre las mismas imágenes (val y test
   canónicos completos) y la misma tarea (`PLAN.TASK`, 1–2 vs 3–5). La etiqueta
   de entrenamiento (A, B o C, ver `src/dataset/target.py`) es un factor más.
 - Las predicciones de cada corrida quedan como asset `predictions_{split}.csv`
-  en su experimento de Comet, así cualquier par se compara sin reentrenar.
-- Para cada par de corridas se reporta la diferencia de PR-AUC y ROC-AUC con
-  IC 95 % por bootstrap pareado agrupado por paciente. Como referencia de
+  en su experimento de Comet, así cualquier par se compara sin reentrenar
+  (`plan.pairwise` sigue disponible en `src` para eso). Como referencia de
   ruido, la misma configuración varió ~0.02 de PR-AUC entre repeticiones.
 
 Para que sean repetibles, el nombre de cada experimento lleva su semilla
@@ -138,7 +140,7 @@ Configuración de la corrida:
 
 - `MODELS`: los 8 backbones de la matriz (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`). Lo usan también los bucles de barrido y `--backbone` del launcher.
 - Canvases RESIZED definidos: 448, 672, 896, 1152 y 1536 (2048 comentado). Son cuadrados y divisibles por 32. La matriz usa hasta 1152.
-- Batch por canvas (`RESIZED.BATCH_SIZES`), igual para todos los backbones en una A100 80GB: 128, 64, 32, 16 y 8. Cache en RAM solo en 448–896.
+- Batch por canvas (`RESIZED.BATCH_SIZES`), igual para todos los backbones en una A100 80GB: 128, 64, 32, 16 y 8, acotado por el batch calibrado del backbone (`vits16` usa 8 en 672). Cache en RAM solo en 448–896.
 - `USE_CUSTOM_BATCH_SIZE=True`: si no hay batch explícito por canvas, manda el batch del backbone y se escala con el área (al cuadrado para ViT).
 - `METRIC_TO_MAXIMIZE=pr_auc`. El umbral del reporte es Youden sobre validación.
 - CLAHE corre sobre la imagen ya lateralizada y antes del resize o del canvas.
@@ -180,7 +182,7 @@ checkpoint; test es la prevalencia del 6.4 % (246/3862):
 
 ### Qué queda por correr
 
-- Las 38 corridas de la matriz en `tesis_v4` (~33 h nominales de A100, varias sesiones de Colab con resume).
+- Las 38 corridas de la matriz en `tesis_v4` (~34 h nominales de A100, varias sesiones de Colab con resume).
 
 ## Layout
 

@@ -29,13 +29,18 @@ change how to edit or run the code:
  within each architecture), `escala` (B0 vs B3 within each architecture), `arquitectura`
  (architectures within each backbone), `resolucion`, `patch_pretrain` and `semillas` (within
  each reference backbone). `MATRIZ = plan.by_cost(plan.unique(...))` plus the two encoders:
- 38 runs, ~33 h nominal of A100 (~0.11 h per cost unit). Out on purpose: 1536, ViT at high
+ 38 runs, ~34 h nominal of A100 (~0.11 h per cost unit; `RunSpec.estimated_cost` adds
+ ViT's quadratic attention in RESIZED, ~1.6× area at 672). Out on purpose: 1536, ViT at high
  resolution, EfficientNet B1/B2/B4+, V2 S/M/L, VGG19, labels B/C.
 - Runs go cheapest first with `continue_on_error=True`; failures are listed and retried on the
  next run. `plan.timing(MATRIZ)` shows real hours (`training_wall_seconds`) and re-estimates the
- rest. The report is per question on val and test (`plan.evaluate` + `plan.pairwise` per
- group) plus `plan.seed_summary(PREGUNTAS["semillas"])`. No automatic
- winners, finalists or propagated decisions — the user asked for raw comparisons. Every
+ rest. The notebook only reports, it does not compare runs (comparisons happen elsewhere):
+ one `plan.evaluate` table per split over all `PREGUNTAS` runs (image and breast level,
+ with a `preguntas` column) plus `plan.seed_summary(PREGUNTAS["semillas"])`, uploaded by
+ `plan.publish_report` as `reporte_{split}.csv` / `semillas_test.csv` assets of the
+ `PLAN.STATUS_EXPERIMENT` experiment. Nothing may be persisted on the Colab disk: results go
+ to Comet (`log_table_asset` uses a temp file because `APIExperiment.log_asset` needs a path). Do not add `plan.pairwise`, winners,
+ finalists or propagated decisions to the notebook; `pairwise` stays in `src` for outside use. Every
  comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
  predictions cached as Comet assets `predictions_{split}.csv` (logged by
  `TrainingExperiment` at the end of each run; recomputed from final weights when missing or
@@ -192,7 +197,8 @@ output.
   `resolve_batch_size()` then scales with the chosen RESIZED canvas (area; squared for
   ViT attention) and `ABMIL.BAG_GRID` so a larger canvas/grid does not OOM.
   If `CONFIG["RESIZED"]["BATCH_SIZES"]` maps a canvas to a batch, that value is used
-  as-is for every backbone (a single safe occupancy, not per-backbone).
+  for every backbone (a single safe occupancy), capped by the backbone's scaled batch
+  when `USE_CUSTOM_BATCH_SIZE` is on (`vits16` at 672 gets 8, not 64).
   `CONFIG["RESIZED"]["CACHE"]` does the same for in-memory `tf.data` cache (on for
   448–896, off for 1152+ so host RAM does not OOM). `GENERAL.CACHE_DATASET` is the
   master switch.
@@ -277,7 +283,10 @@ Checkpoints are written under `checkpoints/`. Experiment runs pass a
   `METRIC_TO_MAXIMIZE`, the global restore epoch (`restore_epoch` / `val_best_metric`), and
   the final `.weights.h5` via `log_model`. `CometTracker.start(experiment_key=...)` reopens an
   existing experiment (`mode="get"`) on resume and skips re-uploading input samples.
-- `comet_results.py` / `CometRunIndex` — finished non-archived runs by name (has
+- `comet_results.py` / `CometRunIndex` — one project listing (`get_experiments(...,
+  pattern=".*")`: without a pattern the API keys by name and drops same-name duplicates),
+  re-listed on `forget(name)` or when a `fresh` request finds it older than
+  `REFRESH_SECONDS`; finished non-archived runs by name (has
   `test_roc_auc` and `val_best_metric`) and download of the
   newest `{name}_final_weights` asset (a resumed run may upload it twice).
 
