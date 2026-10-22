@@ -1,0 +1,92 @@
+# .claudeignore — archivos excluidos del contexto de Claude Code
+# Sintaxis compatible con .gitignore
+
+# ── Entornos virtuales ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env/
+
+# ── Datos y datasets (mammo ~17 GB) ────────────────────────────────
+mammo/
+*.h5
+*.hdf5
+*.npz
+*.npy
+*.parquet
+
+# ── Checkpoints y pesos de modelos ─────────────────────────────────
+checkpoints/
+*.weights.*
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+
+# ── Caché de Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# ── Git ────────────────────────────────────────────────────────────
+.git/
+**/.git/
+
+# ── IDE y editores ─────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Jupyter ────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Imágenes y gráficos generados ──────────────────────────────────
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.svg
+*.bmp
+*.tiff
+*.tif
+.viz_preview/
+
+# ── Papers y PDFs ──────────────────────────────────────────────────
+papers/
+*.pdf
+
+# ── Notebooks de referencia (muy grandes, no editar) ───────────────
+referencia_no_modificar.ipynb
+parches.ipynb
+_parches.ipynb
+
+# ── Resultados y logs ──────────────────────────────────────────────
+*.log
+*.csv
+resultados.csv
+wandb/
+mlruns/
+.comet/
+
+# ── Secretos y credenciales ────────────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets/
+
+# ── Sistema y misc ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.codex

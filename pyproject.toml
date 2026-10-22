@@ -1,0 +1,9 @@
+[tool.black]
+line-length = 300
+skip-magic-trailing-comma = true
+
+[tool.ruff]
+line-length = 300
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
