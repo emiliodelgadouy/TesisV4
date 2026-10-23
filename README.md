@@ -3,7 +3,7 @@
 Clasificación binaria de mamografías (BI-RADS 1–2 → 0, BI-RADS 3–5 → 1) con
 TensorFlow/Keras. El driver es `multirun.ipynb`: descarga el dataset, arma los
 splits y entrena backbones como clasificadores de imagen, clasificadores de
-parches y modelos ABMIL.
+parches y modelos ABMIL (el notebook hoy solo corre `standard` y `resized`).
 
 ## Repositorios
 
@@ -12,8 +12,7 @@ parches y modelos ABMIL.
 | [`emiliodelgadouy/TesisV4`](https://github.com/emiliodelgadouy/TesisV4) | Este workspace: notebook, configuración de la corrida y documentación. |
 | [`emiliodelgadouy/TesisV4_src`](https://github.com/emiliodelgadouy/TesisV4_src) | Paquete `src/`. El notebook lo clona en `./src`. Los cambios locales de `src/` no llegan a Colab hasta que se commitean y pushean ahí. |
 
-El proyecto de Comet es `tesis_v4`: arranca vacío con la matriz nueva y todo
-se reentrena ahí. `tesis_v3` (slug `tesis-v3`) queda como histórico.
+El proyecto de Comet es `tesis_v4`: todo se reentrena ahí. `tesis_v3` (slug `tesis-v3`) queda como histórico.
 
 ## Cómo correr
 
@@ -28,8 +27,8 @@ viva en vez de crear otra VM.
 
 ### Si se cae el ambiente
 
-Cada corrida guarda su avance en su propio experimento de Comet
-(`RESUME.BACKEND="comet"`, assets `resume_*`): el estado, los pesos de la
+Cada corrida guarda su avance en su propio experimento de Comet (assets
+`resume_*`, vía `CometRunStore`): el estado, los pesos de la
 última época y el mejor checkpoint de cada etapa. Para retomar alcanza con
 volver a ejecutar el notebook entero, en la misma VM o en otra. Lo terminado
 se saltea, la corrida cortada sigue desde la última época guardada y sigue
@@ -42,10 +41,9 @@ logueando en el mismo experimento.
   el modelo `{nombre}_final_weights`.
 - Al retomar se recuperan pesos, learning rate y contadores de EarlyStopping y
   ReduceLROnPlateau, pero no los momentos de Adam.
-- Una corrida que Comet ya tiene terminada con el mismo nombre también se
-  saltea (`RESUME.SKIP_IF_IN_COMET`).
-- `RESUME.BACKEND="dir"` guarda lo mismo en la carpeta `RESUME.DIR` (por
-  ejemplo, Drive montado con `--drive`).
+- Una corrida que Comet ya tiene terminada con el mismo nombre se saltea.
+- En `src`, `RunStore` guarda lo mismo en una carpeta (por ejemplo, Drive
+  montado con `--drive`); `multirun.ipynb` usa siempre Comet.
 
 ## Modos
 
@@ -60,65 +58,52 @@ Canónicos, en `src/training/mode.py`:
 `simple` y `full` siguen parseándose como alias de `standard` y `resized`.
 Los nombres de experimento RESIZED llevan el canvas (`resized_672_swint`).
 
-## Estado actual (2026-10-21)
+## Estado actual (2026-10-23)
 
 ### Código y notebook
 
-`multirun.ipynb` entrena una matriz con la etiqueta A (BI-RADS 1–2 vs 3–5) en
-el proyecto nuevo `tesis_v4`. Lo barato se cruza con los 8 backbones; lo caro
-(resolución alta, preentrenamiento con parches, semillas) solo con `swint` y
-`efficientnetb0`. Cada celda se entrena una vez aunque aparezca en varias
-preguntas (`plan.unique`).
+`multirun.ipynb` entrena con la etiqueta A (BI-RADS 1–2 vs 3–5) en el proyecto
+`tesis_v4`. Es plano: una celda por modo con un `for` sobre `MODELS` que llama a
+`train_experiment(mode, backbone, input_size=, seed=)`, en el orden declarado.
+`train_experiment` está definida en el notebook (unas diez líneas): arma el nombre, la
+saltea si Comet ya la tiene terminada y si no llama a
+`run_training_experiment` con un `CometRunStore` para el resume. Solo corre
+modos de mamografía completa; ABMIL y parches salieron del notebook (siguen en
+`src`). El notebook no usa `ExperimentPlan` ni `RunSpec`.
 
-| Backbone | standard | 448 | 672 | 896 | 1152 | abmil | abmil_patch_hardneg | semillas 43 y 44 en 672 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `swint` | sí | sí | sí | sí | sí | sí | sí | sí |
-| `efficientnetb0` | sí | sí | sí | sí | sí | sí | sí | sí |
-| `vits16`, `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn` | sí | — | sí | — | — | sí | — | — |
+- `standard`: los 8 `MODELS` al tamaño nativo.
+- `resized`: los 8 `MODELS` × 448, 672, 896, 1152 y 1536 (40 corridas). `vits16`
+  en 1152 y 1536 corre con batch 1, así que es lo más lento.
 
-Son 38 corridas (con los 2 encoders `patch_hardneg`), unas 34 h de A100. Las
-preguntas (`PREGUNTAS`; definen qué se entrena, la comparación se hace fuera
-del notebook):
+Para correr menos se sacan backbones de `MODELS` o canvases de
+`RESIZED.INPUT_SIZES`; `SEEDS` (default `[42]`) repite cada corrida con otras
+semillas. Si una corrida falla, la celda se corta ahí y al volver a ejecutarla
+se reintenta.
 
-| Pregunta | Para qué corridas |
-| --- | --- |
-| `familia` | los 8 backbones, dentro de `standard`, `resized_672` y `abmil` |
-| `escala` | `efficientnetb0` vs `efficientnetb3`, en esas tres arquitecturas |
-| `arquitectura` | `standard` vs `resized_672` vs `abmil`, dentro de cada backbone |
-| `resolucion` | standard, 448, 672, 896 y 1152, en `swint` y `efficientnetb0` |
-| `patch_pretrain` | `abmil_patch_hardneg` vs `abmil`, en `swint` y `efficientnetb0` |
-| `semillas` | semillas 42, 43 y 44 de `resized_672`, en `swint` y `efficientnetb0` |
-
-Las horas salen del costo estimado (píxeles relativos a `standard` a 224, ~0.11 h
-de A100 por unidad, calibrado con Swin). VGG16 y CheXNet pueden tardar el doble
-en 672. `plan.by_cost` corre primero lo barato y `plan.timing` muestra las horas
-reales y reestima lo que falta antes de que lleguen 896 y 1152. Quedan fuera a
-propósito: 1536, ViT en resolución alta, EfficientNet B1/B2/B4+, V2 S/M/L,
-VGG19 y las etiquetas B y C.
+Lo que está en Comet manda: una corrida terminada en Comet con el mismo nombre
+se saltea y una cortada se retoma. El resumen del final no usa los bucles: lee
+de Comet las métricas que cada corrida `standard_*` / `resized_*` terminada (no
+archivada) ya logueó (`CometRunIndex.names` + `finished_metrics`), sin
+recalcular nada ni usar GPU.
 
 Para monitorear, cada corrida loguea en Comet `run_status`, `run_status_code`,
 `run_progress` (0–1 por época) y sus coordenadas `matrix_backbone` /
-`matrix_arch` / `matrix_seed` / `matrix_label`. El experimento `estado_matriz`
-(tag `estado`) tiene la tabla de todas las corridas, incluidas las pendientes,
-como asset `estado_matriz.csv`, y las métricas `runs_done`, `runs_pending`,
-`runs_failed`, `hours_done` y `matrix_progress`.
+`matrix_arch` / `matrix_seed` / `matrix_label`.
 
-El notebook solo reporta; no compara corridas. Nada se guarda en Colab: el
-reporte se sube como assets `reporte_val.csv`, `reporte_test.csv` y
-`semillas_test.csv` al experimento `estado_matriz` de Comet
-(`plan.publish_report`). Es una tabla por split con una fila por corrida y nivel
-(por imagen y por mama, máximo entre CC y MLO) y la columna `preguntas`:
-discriminación (ROC-AUC, PR-AUC, PR-AUC/prevalencia, sensibilidad a
-especificidad 90/95 %, precisión a recall 80 %), métricas con el umbral de
-Youden de val (sensibilidad, especificidad, PPV, NPV, F1) y calibración
-(Brier, ECE). En test, cada corrida tiene además su IC 95 % por paciente, y
-`semillas` se resume como media ± desvío. Las mismas métricas quedan en Comet
-por corrida (`test_*`, `test_breast_*`, curva `calibration_test`).
+El notebook solo resume; no compara corridas ni guarda nada. Muestra una tabla
+por split (`REPORTE_VAL`, `REPORTE_TEST`) con una fila por corrida y nivel (por
+imagen y por mama, máximo entre CC y MLO): discriminación (ROC-AUC, PR-AUC,
+PR-AUC/prevalencia, sensibilidad a especificidad 90/95 %, precisión a recall
+80 %), métricas con el umbral de Youden de val (sensibilidad, especificidad,
+PPV, NPV, F1) y calibración (Brier, ECE). Son las métricas que cada corrida
+loguea al terminar (`{split}_*`, `{split}_breast_*`); también loguea la curva
+`calibration_{split}` y su IC 95 % por paciente (`test_*_ci_*`). Intervalos y
+resúmenes entre semillas se calculan después desde los `predictions_{split}.csv`.
 
 Para que los experimentos se puedan contrastar en otro lugar:
 
 - Todas las corridas se evalúan sobre las mismas imágenes (val y test
-  canónicos completos) y la misma tarea (`PLAN.TASK`, 1–2 vs 3–5). La etiqueta
+  canónicos completos) y la misma tarea (1–2 vs 3–5). La etiqueta
   de entrenamiento (A, B o C, ver `src/dataset/target.py`) es un factor más.
 - Las predicciones de cada corrida quedan como asset `predictions_{split}.csv`
   en su experimento de Comet, así cualquier par se compara sin reentrenar
@@ -130,17 +115,14 @@ Para que sean repetibles, el nombre de cada experimento lleva su semilla
 etiqueta, la tarea, el commit de `src`, el hash de los splits, el hash del
 config, las versiones de Python, TensorFlow, Keras y comet_ml, y la GPU. En
 Colab no se instalan los requirements, así que la versión de TF la decide
-Colab y queda registrada por corrida. Al crear el plan se verifica que ningún
-paciente caiga en dos splits.
-
-Los bucles de barrido completo por modo siguen en el notebook, comentados, y
-pasan por el mismo plan.
+Colab y queda registrada por corrida. Cada corrida falla si algún paciente o
+estudio cae en dos splits (`src/training/provenance.py`).
 
 Configuración de la corrida:
 
-- `MODELS`: los 8 backbones de la matriz (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`). Lo usan también los bucles de barrido y `--backbone` del launcher.
-- Canvases RESIZED definidos: 448, 672, 896, 1152 y 1536 (2048 comentado). Son cuadrados y divisibles por 32. La matriz usa hasta 1152.
-- Batch por canvas (`RESIZED.BATCH_SIZES`), igual para todos los backbones en una A100 80GB: 128, 64, 32, 16 y 8, acotado por el batch calibrado del backbone (`vits16` usa 8 en 672). Cache en RAM solo en 448–896.
+- `MODELS`: los 8 backbones que recorren los bucles (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`, `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`). Lo usa también `--backbone` del launcher.
+- Canvases RESIZED definidos: 448, 672, 896, 1152 y 1536 (2048 comentado). Son cuadrados y divisibles por 32. El bucle de RESIZED corre todos.
+- Batch por canvas (`RESIZED.BATCH_SIZES`), igual para todos los backbones en una A100 80GB: 128, 64, 32, 16 y 8, acotado por el batch calibrado del backbone (`vits16`: 32, 8, 2, 1 y 1). Cache en RAM solo en 448–896.
 - `USE_CUSTOM_BATCH_SIZE=True`: si no hay batch explícito por canvas, manda el batch del backbone y se escala con el área (al cuadrado para ViT).
 - `METRIC_TO_MAXIMIZE=pr_auc`. El umbral del reporte es Youden sobre validación.
 - CLAHE corre sobre la imagen ya lateralizada y antes del resize o del canvas.
@@ -150,11 +132,17 @@ Configuración de la corrida:
 `multirun_wip.ipynb` es una ablación aparte, sin modificar `src/`, que queda
 como registro: fijó `resized_448_swint` y comparó tres definiciones de `cls`
 (BI-RADS 3 como positivo, excluido, o negativo), con prefijo `wip_` en
-`tesis_v3`. La matriz actual usa solo la etiqueta A.
+`tesis_v3`. `multirun.ipynb` usa solo la etiqueta A.
+
+`optuna_swint672.ipynb` lleva `resized_672_swint` al límite en el proyecto de Comet `tesis_v4_hpo`, también sin modificar `src/`. Los hiperparámetros que `src` tiene fijos (LR por etapa, cabeza, optimizador, label smoothing, aumento, CLAHE, MixUp) se inyectan con hooks en runtime desde el notebook. El notebook tiene tres partes:
+
+- **Búsqueda con Optuna** (~12 h, ~20 trials con poda, objetivo PR-AUC del val canónico). El estudio es un SQLite que se sincroniza como asset `optuna.db` del experimento `optuna_estudio`.
+- **Confirmación**: el mejor config con las etiquetas A/B/C × semillas 42/43/44, evaluado siempre sobre la tarea A y comparado contra el baseline de `tesis_v4`.
+- **Post-hoc y reporte**: TTA, ensembles y calibración, más observabilidad (Grad-CAM, IG, oclusión y localización contra la ROI). Las tablas van como assets de `estado_hpo`.
 
 ### Resultados históricos (`tesis_v3`)
 
-Son de antes de la matriz actual y no se mezclan con `tesis_v4`; sirven de
+Son de antes de `tesis_v4` y no se mezclan con `tesis_v4`; sirven de
 referencia para las estimaciones. `comet_metrics/` (local, fuera de git) tiene el dump del 2026-10-19: 66
 experimentos de `tesis-v3`, 38 activos y 28 archivados del barrido anterior
 (`simple`/`full`/`abmil`, checkpoint `auc` o `pr_auc` del 07–08/09). Se baja con
@@ -175,20 +163,21 @@ checkpoint; test es la prevalencia del 6.4 % (246/3862):
 
 - Swin mejora con el canvas hasta 672–896 y después cae. `resized_1536_swint` quedó cortada en la etapa 2 (val 0.31).
 - ViT empeora con canvases grandes (448: 0.742 test ROC; 896: 0.635).
-- No hay `resized_*_efficientnet` con el código actual; la matriz actual las entrena (familia, escala, arquitectura y resolución).
+- No hay `resized_*_efficientnet` con el código actual; `multirun.ipynb` las entrena.
 - `customcnn` y `chexnet` quedan cerca del azar (test ROC 0.54–0.60).
-- La ablación de BI-RADS 3 (`wip_a/b/c`) evaluó cada variante contra un test distinto, así que sus AUC no se comparan entre sí; las etiquetas B y C quedan fuera de la matriz actual.
+- La ablación de BI-RADS 3 (`wip_a/b/c`) evaluó cada variante contra un test distinto, así que sus AUC no se comparan entre sí; las etiquetas B y C quedan fuera de `multirun.ipynb`.
 - En el barrido archivado, ABMIL queda por debajo de Swin resized (`abmil_patch_hardneg_swint`: 0.767 / 0.358 de test).
 
 ### Qué queda por correr
 
-- Las 38 corridas de la matriz en `tesis_v4` (~34 h nominales de A100, varias sesiones de Colab con resume).
+- Las 48 corridas `standard` y `resized` en `tesis_v4` (varias sesiones de Colab con resume).
 
 ## Layout
 
 ```
-multirun.ipynb          driver: matriz de experimentos con resume y reporte por pregunta
+multirun.ipynb          driver: standard y resized por backbone, con resume y resumen desde Comet
 multirun_wip.ipynb      ablación de etiquetas BI-RADS
+optuna_swint672.ipynb   Optuna + observabilidad sobre resized_672_swint (tesis_v4_hpo)
 src/                    paquete de entrenamiento (repo aparte; ver src/README.md)
 papers/                 papers de referencia
 comet_metrics/          dump local de Comet (gitignored)

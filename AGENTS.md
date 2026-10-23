@@ -11,47 +11,52 @@ that convention when editing source code.
 
 `src/` is a standalone Git repository consumed by the notebook as
 `emiliodelgadouy/TesisV4_src` (`https://github.com/emiliodelgadouy/TesisV4_src`). The Comet
-project in the notebook is `tesis_v4` (new, empty at the start of the current matrix; everything
-is retrained there). `tesis_v3` (slug `tesis-v3`) is historical. The current workspace
+project in the notebook is `tesis_v4` (everything is retrained there). `tesis_v3` (slug `tesis-v3`) is historical. The current workspace
 driver is `multirun.ipynb`; its Colab setup recreates `./src` from that remote, so local
 `src/` edits are not visible there until they are committed and pushed.
 
-## Current status (2026-10-21)
+## Current status (2026-10-23)
 
 The human-facing snapshot lives in the workspace `README.md` and `src/README.md`. Facts that
 change how to edit or run the code:
 
-- `multirun.ipynb` trains a label-A-only matrix in `tesis_v4`: cheap cells cross all 8 `MODELS`
- (`standard`, `resized_672`, `abmil`), expensive ones only `REFERENCIAS = [swint,
- efficientnetb0]` (`resized` 448/896/1152, `abmil_patch_hardneg` with encoder
- `patch_hardneg_{backbone}`, and seeds 43/44 of `resized_672`). `PREGUNTAS` is
- question → group → specs and pairs are compared only within a group: `familia` (backbones
- within each architecture), `escala` (B0 vs B3 within each architecture), `arquitectura`
- (architectures within each backbone), `resolucion`, `patch_pretrain` and `semillas` (within
- each reference backbone). `MATRIZ = plan.by_cost(plan.unique(...))` plus the two encoders:
- 38 runs, ~34 h nominal of A100 (~0.11 h per cost unit; `RunSpec.estimated_cost` adds
- ViT's quadratic attention in RESIZED, ~1.6× area at 672). Out on purpose: 1536, ViT at high
- resolution, EfficientNet B1/B2/B4+, V2 S/M/L, VGG19, labels B/C.
-- Runs go cheapest first with `continue_on_error=True`; failures are listed and retried on the
- next run. `plan.timing(MATRIZ)` shows real hours (`training_wall_seconds`) and re-estimates the
- rest. The notebook only reports, it does not compare runs (comparisons happen elsewhere):
- one `plan.evaluate` table per split over all `PREGUNTAS` runs (image and breast level,
- with a `preguntas` column) plus `plan.seed_summary(PREGUNTAS["semillas"])`, uploaded by
- `plan.publish_report` as `reporte_{split}.csv` / `semillas_test.csv` assets of the
- `PLAN.STATUS_EXPERIMENT` experiment. Nothing may be persisted on the Colab disk: results go
- to Comet (`log_table_asset` uses a temp file because `APIExperiment.log_asset` needs a path). Do not add `plan.pairwise`, winners,
- finalists or propagated decisions to the notebook; `pairwise` stays in `src` for outside use. Every
- comparison uses the same canonical images and the fixed task `PLAN.TASK` ("A"), with
- predictions cached as Comet assets `predictions_{split}.csv` (logged by
- `TrainingExperiment` at the end of each run; recomputed from final weights when missing or
- when the run's rows differ from the canonical split). The per-mode full-sweep loops are
- commented and also go through `plan.run`.
+- `multirun.ipynb` trains label A only in `tesis_v4` and is deliberately flat and does not use
+ `ExperimentPlan` or `RunSpec`. A notebook-defined `train_experiment(mode, backbone, input_size=, seed=)`
+ (~10 lines, visible on purpose) deep-copies `CONFIG` with the seed, builds the name with
+ `notebook_api.experiment_name`, skips it if `CometRunIndex.finished(name)` and otherwise calls
+ `run_training_experiment(..., resume_store=CometRunStore(comet, name))`. One cell per mode
+ with plain `for` loops over `MODELS` (and, in RESIZED, every canvas of `RESIZED.INPUT_SIZES`
+ via `resized_input_sizes(CONFIG, backbone)`) and `SEEDS` (default `[42]`), in declared
+ order. Only `standard` (8 runs) and `resized` (8 × 448/672/896/1152/1536 = 40 runs) are in
+ the notebook; ABMIL and patch modes were removed on purpose (they stay in `src`). Do not
+ reintroduce `ExperimentPlan`/`RunSpec`, question/group structures, cost ordering, timing/cost
+ estimates, status tables, the `PLAN` / `RESUME` config blocks or uploads to a status experiment
+ in the notebook. A failed run stops its cell; re-running retries it.
+- `TrainingExperiment.run` itself checks patient/study leakage between the splits it gets and
+ logs `LABEL`, `EVAL_TASK` and `PROVENANCE_*` (`training/provenance.py`) unless `GENERAL`
+ already has them (as `ExperimentPlan._config_for` does). `predictions_{split}.csv` always
+ carries `birads`.
+- The summary does not use the notebook loops: it reads, for every finished non-archived
+ `standard_*` / `resized_*` run of the Comet project (`CometRunIndex.names` +
+ `CometRunIndex.finished_metrics`), the clinical metrics the run already logged
+ (`{split}_*`, `{split}_breast_*`), one row per run and level, without recomputing or a GPU.
+ It stores nothing; confidence intervals and seed summaries are computed later from the
+ predictions. The notebook only reports, it does not compare runs. Nothing may be persisted on
+ the Colab disk. Do not add `plan.pairwise`, winners, finalists or propagated decisions to the
+ notebook; `pairwise` stays in `src` for outside use. Every comparison uses the same canonical
+ images and task A, with predictions cached as Comet assets `predictions_{split}.csv` (logged by
+ `TrainingExperiment` at the end of each run; `ExperimentPlan.predictions` recomputes them from
+ final weights when missing or when the run's rows differ from the canonical split).
+- `ExperimentPlan` stays in `src` because `optuna_swint672.ipynb` uses it (`run`, `run_all`,
+ `status_table`, `publish_status`, `publish_report`, `predictions`, `evaluate`,
+ `seed_summary`); `finished_specs` / `spec_from_name` rebuild `RunSpec`s from Comet names,
+ and `by_cost` / `timing` / `pairwise` remain for outside use.
 - Monitoring: each run logs `run_status` (other), `run_status_code` / `run_progress` (metrics;
  progress is over the planned epochs of the three stages, from `stage_runner.training_progress`)
  and `matrix_backbone` / `matrix_arch` / `matrix_seed` / `matrix_label` (others).
  `RUN_STATUS_CODES` in `tracking/comet.py`: −1 failed, 0 pending, 1 partial, 2 training,
- 3 evaluating, 4 done. `plan.run_all(..., preguntas=)` publishes `plan.status_table` (all runs,
- pending included) before and after each run as the overwritten asset `estado_matriz.csv` plus
+ 3 evaluating, 4 done. `plan.run_all(specs)` publishes `plan.status_table` (the runs of that
+ call, pending included) before and after each run as the overwritten asset `estado_matriz.csv` plus
  `runs_*` / `hours_done` / `matrix_progress` metrics on the experiment `PLAN.STATUS_EXPERIMENT`
  (default `estado_matriz`, tag `estado`); publish errors are printed, never raised. The `done`
  status must be logged before `log_test_results`, which ends the Comet experiment.
@@ -59,14 +64,12 @@ change how to edit or run the code:
  Python/TensorFlow/Keras/comet_ml versions and GPU; Colab skips requirements, so TF is
  whatever Colab ships). `multirun_wip.ipynb` is kept as the record of the `wip_*` runs in
  `tesis_v3`.
-- Resume: `RESUME.BACKEND="comet"` stores each run's state and weights as `resume_*` assets of
- its own Comet experiment (`"dir"` uses a folder in `RESUME.DIR`). Re-running the notebook
- skips `done` runs, resumes a cut run from its last epoch, and keeps logging into the same
- Comet experiment. `SKIP_IF_IN_COMET` also treats finished Comet runs with the same name as
- done.
-- `MODELS`: the 8 matrix backbones (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`,
- `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`), also used by the commented sweep loops
- and the launcher `--backbone`. RESIZED canvases in the notebook: 448, 672,
+- Resume: `CometRunStore` stores each run's state and weights as `resume_*` assets of its own
+ Comet experiment (`RunStore` uses a folder; `ExperimentPlan` picks one with
+ `RESUME.BACKEND`). Re-running the notebook skips runs finished in Comet, resumes a cut run
+ from its last epoch, and keeps logging into the same Comet experiment.
+- `MODELS`: the 8 backbones of the notebook loops (`swint`, `vits16`, `efficientnetb0`, `efficientnetb3`,
+ `efficientnetv2b0`, `vgg16`, `chexnet`, `customcnn`), also used by the launcher `--backbone`. RESIZED canvases in the notebook: 448, 672,
  896, 1152, 1536 (2048 is listed and commented), with `RESIZED.BATCH_SIZES` and
  `RESIZED.CACHE` (cache on for 448–896).
 - Checkpoint metric is `GENERAL.METRIC_TO_MAXIMIZE = "pr_auc"`. CLAHE already runs after
@@ -293,14 +296,12 @@ Checkpoints are written under `checkpoints/`. Experiment runs pass a
 ## Working with the notebook
 
 `multirun.ipynb` is the current experiment driver. Its flow is: clone/setup `src` from
-`TesisV4_src` -> `configure_notebook()` -> import `src.notebook_api` -> define config
-(including `RESUME` and `PLAN`) -> `prepare_resume()` -> download/prepare data ->
-matrix through `ExperimentPlan` (`PREGUNTAS` → `MATRIZ` → `plan.run_all` → report per
-question). No spec depends on another run's result, except that `abmil_patch_hardneg` needs its
-`patch_hardneg` encoder (trained first by `by_cost`, or on demand by `trained_builder`).
-Re-running the whole notebook after a crash is the resume path. To add a question, add a
-`{group: [specs]}` entry to `PREGUNTAS`; shared cells are deduplicated by name. Keep the per-mode sweep loops commented
-unless the run is meant to include them.
+`TesisV4_src` -> `configure_notebook()` -> import `src.notebook_api` -> define config ->
+download/prepare data -> splits -> `comet = CometRunIndex(CONFIG)` + `train_experiment` -> one `for`
+loop per mode (`standard`, `resized`) -> summary read from the metrics logged in Comet. No run
+depends on another run's result. Re-running the whole notebook after a crash is the resume
+path; the summary cells only need setup, config and the `train_experiment` cell. To train more, edit
+`MODELS`, `RESIZED.INPUT_SIZES` or `SEEDS`, or add another loop cell for a mode.
 `multirun_wip.ipynb` is the BI-RADS label ablation and does not change `src/`.
 
 Keep notebook configuration and source defaults synchronized when adding a mode or changing bag,
